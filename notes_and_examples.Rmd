@@ -1,0 +1,95 @@
+---
+title: "notes_and_examples"
+author: "Rose Abramoff"
+date: "8/16/2018"
+output: html_document
+---
+#Description
+This script contains an example of the land model namelist file 'user_nl_clm' as well as some other code needed to implement various types of model runs with ELM-BeTR-ReSOM. These scripts are written to run on the NERSC machine Edison with a bunch of files that I've generated, but they can be personalized to your own machine and/or data files.
+In general, I rely a lot on CESM documentation/tutorials/bulletin boards (http://www.cesm.ucar.edu/) because the models are very similar to each other but E3SM is so new that the documentation is not super developed yet. I also use the documentation in the E3SM Atlassian Confluence pages, and keep an eye on the E3SM Github page so that I can incorporate important updates into my branch.
+
+##Create a new case
+To create a case from the cime/scripts directory, you need to specify the name of the case, compset, machine, compiler, project, resolution, and if your resolution is user data (for example here I am using an extracted gridcell over the Blodgett Experimental Forest) then you need to provide the path to that data folder.
+```{r, eval = FALSE}
+./create_newcase -case NameOfYourCase -compset I1850CRUCLM45BGC -mach edison -compiler intel -project acme -res CLM_USRDAT -user_mods_dir /global/u2/r/rza/BigModels/jytblodata
+```
+
+##Change environment variables
+From inside your case file directory you can change environment variables (stored in env_run.xml) using the command ./xmlchange or by opening up the file in a text editor and modifying it directly. Changing variables from the command line is generally easier than messing about with text editors which can be slow on the NERSC cluster.
+Below are some common specifications that I make when running the model at Blodgett, like using my own forcing files that are more up to date. By default the root for forcing data on Edison is '/global/project/projectdirs/acme/inputdata/atm/datm7/', but a lot of these data do not go up to 2016.
+I also specify how many years I want the model to run: coupler bypass mode can run 1000 years in less than a day (one gridcell, wallclock time), but a regular run can only simulate about 350 years in a day. I opt to write restart files every 50 years just in case the job times out, so I can start the run up again without losing too much data.
+```{r, eval=FALSE}
+./xmlchange DATM_MODE=CLMCRUNCEP
+./xmlchange DIN_LOC_ROOT_CLMFORC=/global/cscratch1/sd/rza/acme_scratch/edison/datm7NCEP-DOE2
+./xmlchange DATM_CLMNCEP_YR_START=1979
+./xmlchange DATM_CLMNCEP_YR_END=2016
+./xmlchange CLM_BLDNML_OPTS="-bgc bgc -betr_mode on -bgc_spinup off"
+./xmlchange STOP_N=1000,REST_N=50,REST_OPTION=nyears,STOP_OPTION=nyears
+./xmlchange JOB_WALLCLOCK_TIME=24:00:00
+```
+
+#Modify namelist
+Below is a namelist file for coupler bypass mode, which adds all of the lines after use_warm=.false. For regular mode, just remove these lines so that EOF follows use_warm=.false.
+The first (cat <<EOF > ./user_nl_clm) and last (EOF) lines write the file, so you can paste all of the below into the command line to write the namelist file (again, easier than text editing by hand).
+Most of these options are not required. A little bit about each:
+
+* reaction_method <- specifies the reaction method, resom is called "summs" here, ecacnp with century is called "ecacnp"
+* nu_com <- nutrient competition method, I always use ECA
+* paramfile <- file where the land model parameters are located, required
+* fsurdat <- surface data file, required
+* finidat <- initial data file, if you are spinnining up from nothing it is not required but it's best practice to set it to nothing
+* use_dynroot <- use dynamic roots, I don't know how well-developed this part of the model is so I always turn it off
+* hist_empty_htapes <- this gets rid of all the default history files, I like to do this and define my own history files in the next line because I don't generally look at all the stuff the model outputs as default
+* hist_fincl1 <- here is where I specify exactly what variables I want to output in the history file
+More helpful info about history files is here: http://www.cesm.ucar.edu/models/atm-cam/docs/usersguide/node21.html#SECTION00713000000000000000
+* hist_avgflag_pertape <- specifies how I want the variables reported (annual average, instantaneous)
+* hist_mfilt <- number of time samples per history file
+* hist_nhtfrq <- frequency of history file writes
+* suplphos <- supplementary phosphorus, makes sure that it is not limiting and is used to functionally ignore the P cycle
+* suplnitro <- same as above, but for nitrogen
+* stream_fldfilename_pdep <- phosphorus deposition
+* stream_year_first/last_pdep <- for pre-industrial, I set both first and last to 1850
+* use_warm <- variable I added to specify whether you want to turn on +4C warming, .false. is ambient, .true. turns on a step-change of +4C at the beginning of the (presumably branch) run
+```{r, eval=FALSE}
+cat <<EOF > ./user_nl_clm
+reaction_method='summs'
+nu_com='ECA'
+paramfile = '/global/u2/r/rza/BigModels/jytblodata/clm_params.c171121.nc'
+fsurdat = '/global/u2/r/rza/BigModels/jytblodata/surfdata_1x1pt_f19_blodgettUSA_simyr1850_c180215.nc'
+finidat=''
+use_dynroot = .false.
+hist_empty_htapes = .true.
+hist_fincl1 = 'CO2x_TRACER_CONC_BULK','CH4_TRACER_CONC_BULK','CWDC_TRACER_CONC_BULK','ENZC_TRACER_CONC_BULK','ENZC_TRACER_CONC_SOLID_EQUIL','F_CO2_SOIL','F_CO2_SOIL_vr','FWDC_TRACER_CONC_BULK','GPP','H2OSOI','HR', 'HR_vr', 'LAISHA', 'LAISUN','LIT1C_TRACER_CONC_BULK','LIT2C_TRACER_CONC_BULK','LIT3C_TRACER_CONC_BULK','LWDC_TRACER_CONC_BULK','MICC_TRACER_CONC_BULK','MONOC_TRACER_CONC_BULK','MONOC_TRACER_CONC_SOLID_EQUIL','NH3x_TRACER_CONC_BULK','NO3x_TRACER_CONC_BULK','NPP','O2_TRACER_CONC_BULK','POLYC_TRACER_CONC_BULK','RESC_TRACER_CONC_BULK','SOILC','SOILC_HR','SOILPSI','SOM_C_LEACHED','TOTABGC','TOTABGC','TOTECOSYSC','TOTLITC','TOTLITC_1m','TOTSOMC','TOTSOMC_1m','TOTVEGC','TSOI_10CM','CO2x_FLX_SURFEMI','CO2x_FLX_DIF','CO2x_FLX_EBU','CO2x_FLX_ARCHM'
+hist_avgflag_pertape = 'A','I'
+hist_mfilt = 10
+hist_nhtfrq = -8760
+suplphos='ALL'
+suplnitro='ALL'
+stream_fldfilename_pdep='/global/u2/r/rza/BigModels/jytblodata/pdep_1850-2013_c20180125.nc'
+stream_year_first_pdep = 1850
+stream_year_last_pdep = 1850
+use_warm = .false.
+metdata_type = 'cru'
+metdata_bypass = '/global/project/projectdirs/acme/inputdata/atm/datm7/atm_forcing.datm7.cruncep_qianFill.0.5d.V7.c160715/cpl_bypass_full'
+co2_file = '/project/projectdirs/acme/inputdata/atm/datm7/CO2/fco2_datm_1765-2007_c100614.nc'
+aero_file = '/project/projectdirs/acme/inputdata/atm/cam/chem/trop_mozart_aero/aero/aerosoldep_monthly_1849-2006_1.9x2.5_c090803.nc'
+EOF
+```
+
+#Coupler bypass option
+If you are using coupler bypass mode, you also have to add a compiler flag to Macros.make letting it know what you want to do. This command will modify the file for you so that you don't have to text edit Macros.make.
+```{r, eval=FALSE}
+sed -i '8iCPPDEFS+= -DCPL_BYPASS' Macros.make
+```
+
+#Setting up, building, submitting and monitoring your job
+http://www.nersc.gov/ has a lot of useful info about machine status, and how to control your jobs in more sophisticated ways
+```{r, eval=FALSE}
+./case.setup 	#sets up your job
+./case.build 	#builds your job
+./case.submit 	#submits your job
+sqs 			#check on your jobs	
+```
+
+#Things to watch out for
+Every time NERSC has a scheduled maintenance, they tend to update some modules (programs that the model calls) which means you have to update the modules listed in the machines/config files or you won't be able to execute whatever script is affected (create_newcase, case.submit, whatever). The software engineers on E3SM usually make this fix pretty quickly, so if you keep an eye on the E3SM github repository, you will see the issue/bug and subsequent fix that you need to get going again.
