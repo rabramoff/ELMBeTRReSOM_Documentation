@@ -5,7 +5,7 @@ date: "8/6/2018"
 output: html_document
 ---
 ```
-This script calculates CO2 production from CO2 concentration outputted by the model, intended to test inversion methods used by empirical scientists. The model calculates heterotrophic respiration directly, allowing for comparisons CO2 production calculated by inveresion and CO2 production by microbes, and their temperature sensitivity. 
+This script calculates CO2 production from CO2 concentration outputted by the model, intended to test inversion methods used by empirical scientists. The model calculates heterotrophic respiration directly, allowing for comparisons CO2 production calculated by inversion and CO2 production by microbes, and their temperature sensitivity. 
 This scripts uses the inversion method of Hicks Pries et al. 2017 Science, and is also heavily based on their original R script for calculating production fluxes from gas well measurements at Blodgett Experimental Forest.
 ```
 #Libraries
