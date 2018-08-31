@@ -1,0 +1,391 @@
+---
+title: "PostProcessR"
+author: "Rose Abramoff"
+date: "4/13/2018"
+output: html_document
+---
+```
+This script outputs customizable model predictions from one grid cell (Blodgett Forest) using ELM-Betr-ECACNP with ReSOM and/or Century to check model performance and compare against data collected at Blodgett Forest TES SFA Soil Warming Experiment.
+```
+#Load packages
+```{r}
+library(ncdf4)
+library(stringr)
+```
+
+#Specify directories
+```{r}
+datadir <- "/Users/rzabramoff/Documents/ELMBeTRReSOM_Documentation/data_sheets/" #Blogett data directory
+rundir = "/Users/rzabramoff/Documents/BigModels/runs_from_edison/" #model output directory
+```
+
+#Load data and model output with diagnostic plots
+##Read in Blodgett data
+```
+This script reads in various Blodgett Forest data into data frames.
+```
+```{r}
+#soil C stock data from initial pit characterization
+df <- read.csv(paste0(datadir,"Blodgett_pit_C_stock_10302018.csv"))
+df$MatchDepth <- df$Mid.Depth
+
+#old gas well data from caitlin
+cf <- read.csv(paste0(datadir,"ISCNtemplate_BLWarmingExperiment_1.csv"))
+cf <- cf[cf$profile_name =="1Control" | cf$profile_name =="2Control" | cf$profile_name =="3Control",]
+cf$CO2 <- as.numeric(as.character(cf$c_conc_CO2))
+cf$time_series <- strptime(cf$gas_time_series, format = "%m/%d/%y %R" )
+cf$Depth <- as.numeric(as.character(cf$layer_name))
+
+#new gas well data from jenny
+af <- read.csv(paste0(datadir,"BL_GW_all_20180712.csv"))
+af$time_series <- strptime(af$Date, format = "%m/%d/%y" )
+hf <- af[af$Treatment =="Heated",]
+hf$time_series <- strptime(hf$Date, format = "%m/%d/%y" )
+cf <- af[af$Treatment =="Control",]
+cf$time_series <- strptime(cf$Date, format = "%m/%d/%y" )
+
+#microbial biomass data from jenny
+micbio <- read.csv(paste0(datadir,"MB_JS.csv"))
+mbc <- micbio[micbio$Treatment=="C",]
+mbc$MatchDepth <- mbc$MidDepth
+
+#bulk density #added MatchDepth column that represents closest depth increment to relevant increments for microbial biomass - in future, interpolate
+bd <- read.csv(paste0(datadir,"Blodgett_pit_C_bulk_density.csv"))
+mbd <- merge(mbc,bd, by="MatchDepth")
+mbd$micgram <- 100*mbd$MBC/mbd$BD_gC_cm3 #mg/g soil to gC/m2
+
+lf <- read.csv(paste0(datadir,"BL_Lys_All.csv"))
+
+auto <- read.csv(paste0(datadir,"BLAutoFluxAll_Aug2018.csv"))
+auto$time_series <- strptime(auto$date, format = "%m/%d/%y %R")
+control <- subset(auto,Plot=="BLPP1C" | Plot=="BLPP2C" | Plot=="BLPP3C") 
+heated  <- subset(auto,Plot=="BLPP1H" | Plot=="BLPP2H" | Plot=="BLPP3H") 
+```
+
+##Load summary model output
+```{r}
+folder = c("NSC_ambient1","CEC","NSCEAH","NSCEWH") #name of folder
+nyear = c(1091, 1191, 1, 1) #number of years of model run
+nskip = c(10, 10, 1, 1) #number of years skipped between output files
+ntype = c("yr","yr","dy","dy") #frequency of output
+deepmat=NULL
+out.string <- c("TOTSOMC","TOTSOMC_1m","TOTECOSYSC","TOTVEGC","LAISHA","LAISUN","GPP","HR","NPP","TSOI_10CM","TOTLITC","TOTLITC_1m") #output variables
+noutputs <- length(out.string)
+out.soil=in.soil=NULL
+
+for (j in 1:length(nyear)) {
+yraw <- seq(1,nyear[j],by=nskip[j])
+y <- str_pad(yraw, 4, pad = "0")
+for(i in 1:noutputs){
+in.soil[[i]] <- vector(length = length(yraw))
+}
+
+index = 1
+for (i in 1:length(y)) {
+filename <- NULL
+  if(ntype[j]=="yr"){
+        filename <- paste(rundir,folder[j],"/",folder[j],".clm2.h0.", y[i], "-01-01-00000.nc", sep = "")
+  }else if (ntype[j]=="dy") {
+        filename <- paste(rundir,folder[j],"/",folder[j],".clm2.h0.2013-10-24-00000.nc", sep = "")
+  }else if (ntype[j]=="mo"){
+        filename <- paste(rundir,folder[j],"/",folder[j],".clm2.h0.0", y[i], "-05.nc", sep = "")
+  }else{
+    print(paste("need to specify valid frequency of output for",folder[j]))
+     break
+    }
+
+        in.file <- nc_open(filename)
+        
+#get the variables
+if (ntype[j]=="dy") {
+        for(k in 1:noutputs){
+        in.soil[[k]][1:729] <- ncvar_get(in.file, out.string[k])
+        }
+}else{
+        for(k in 1:noutputs){
+        in.soil[[k]][(1+(i-1)*nskip[j]):(i*nskip[j])] <- ncvar_get(in.file, out.string[k])
+        }
+}  
+        # remove the giant .nc file just so it's not taking up memory
+        rm(in.file)
+        
+        print(paste("done with folder", folder[j], "done with year", y[i]))      
+        index = index + 1
+  }
+
+deepmat[[j]] = in.soil
+names(deepmat[[j]]) <- out.string
+}
+names(deepmat) <- folder
+```
+
+##Plot timeseries
+```{r}
+spinfolder <- folder[ntype=="yr"]
+par(mfrow=c(2,2))
+for(i in 1:length(out.string)){
+  maxin <- NULL
+  for(j in 1:length(spinfolder)){
+  maxin[j] <- max(deepmat[[j]][[i]])
+  }
+  maxall <- max(maxin)
+
+#The number of spinup dataset that will be plotted is hardcoded (2 in this example) - may need to modify
+    plot(deepmat[[spinfolder[1]]][[i]], type="l",col="gray", xlab="Years", ylab=out.string[i], ylim=c(0,maxall))
+    lines(deepmat[[spinfolder[2]]][[i]], type="l", col="black")
+}
+
+#GPP units: gC/m2/s
+#From Falge et al. 2002 AgForMet
+  #Blodgett Forest Seasonal Maximum GPP (umolCO2/m2/s) = 23.8 (DOY=159)
+  #Blodgett Forest Seasonal Miniumum GPP (umolCO2/m2/s) = 7.6 (DOY=339)
+  #Blodgett Forest Seasonal Maximum Re (umolCO2/m2/s) = 3.3 (DOY=343)
+  #Blodgett Forest Seasonal Miniumum Re (umolCO2/m2/s) = 0.9 (DOY=257)
+  #Blodgett Forest Annual GPP (gC/m2/yr) = 1386
+s2y <- 60*60*24*365 #gC/m2/s to gC/m2/yr
+mean(tail(deepmat[["NSC_ambient1"]]$GPP,100))*s2y
+mean(tail(deepmat[["CEC"]]$GPP,100))*s2y
+  #Blodgett Forest Annual NEP (gC/m2/yr) = 339
+mean(tail(deepmat[["NSC_ambient1"]]$NPP,100))*s2y  #not quite NEP, but ok first pass in absence of disturbance
+mean(tail(deepmat[["CEC"]]$NPP,100))*s2y
+
+#check if total ecosystem C changes < 1% per year over a 30 year period
+nyearbig <- nyear[nyear>31]
+check <- rep(F,length(nyearbig))
+for(i in 1:length(nyearbig)){
+maxli <- length(deepmat[[i]]) #how many elements in list
+maxit <- length(deepmat[[i]][[1]]) #how many elements in each list item
+tot <- matrix(ncol=maxli,nrow=31)
+for(j in 1:maxli){
+tot[,j] <- deepmat[[i]][[j]][(maxit-30):maxit]
+}
+check[i] <- all(100*diff(tot[,i])/tot[1:30,i] < 1)
+plot(100*diff(tot[,i])/tot[1:30,i], col=i, main=folder[i], type="o", xlab="Years", ylab="Delta SOC (%/yr)")
+}
+check
+```
+
+##Load seasonal monthly model output
+```{r, eval=FALSE}
+monfolder= folder[ntype=="mo"]
+deepmat.1d=deepmat.2d.15=deepmat.2d.10=NULL
+out.string.1d <- c("TOTSOMC","TOTSOMC_1m","TOTECOSYSC","TOTVEGC","LAISHA","LAISUN","GPP","HR","NPP","TSOI_10CM")
+out.string.2d.15 <- c("SOILPSI", "HR_vr")
+out.string.2d.10 <- c("CO2x_TRACER_CONC_BULK","POLYC_TRACER_CONC_BULK","MONOC_TRACER_CONC_BULK","MICC_TRACER_CONC_BULK","ENZC_TRACER_CONC_BULK","RESC_TRACER_CONC_BULK","LIT1C_TRACER_CONC_BULK","LIT2C_TRACER_CONC_BULK","LIT3C_TRACER_CONC_BULK")   
+in.soil.1d=in.soil.2d.15=in.soil.2d.10=NULL
+
+ytot <- 3 #total number of years run
+yraw <- seq(1,ytot,by=1)
+y <- str_pad(yraw, 4, pad = "0")
+month.num <- c("01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12")
+
+for (j in 1:length(monfolder)) {
+  for(i in 1:length(out.string.1d)){
+  in.soil.1d[[i]] <- vector(length = ytot*12)
+  }
+  for(i in 1:length(out.string.2d.15)){
+  in.soil.2d.15[[i]] <- matrix(nrow=ytot*12, ncol=15)
+  }
+  for(i in 1:length(out.string.2d.10)){
+  in.soil.2d.10[[i]] <- matrix(nrow=ytot*12, ncol=10)
+  }
+  
+  for (h in 1:length(y)) {
+
+      for (m in 1:12) {
+        filename <- paste(rundir,monfolder,"/",monfolder,".clm2.h0.", y[h], "-", month.num[m], ".nc", sep = "")
+        in.file <- nc_open(filename)
+        
+        # get the variable
+        for(k in 1:length(out.string.1d)){
+        in.soil.1d[[k]][((1+(h-1)*m):(h*m))] <- ncvar_get(in.file, out.string.1d[k])
+        }
+        for(k in 1:length(out.string.2d.15)){
+        in.soil.2d.15[[k]][((1+(h-1)*m):(h*m)),] <- ncvar_get(in.file, out.string.2d.15[k])
+        }
+        for(k in 1:length(out.string.2d.10)){
+        in.soil.2d.10[[k]][((1+(h-1)*m):(h*m)),] <- ncvar_get(in.file, out.string.2d.10[k])
+        }
+
+        rm(in.file)
+      }
+  print(paste("done with year", y[h]))
+  index = index+1
+}
+deepmat.1d[[j]] = in.soil.1d
+deepmat.2d.15[[j]] = in.soil.2d.15
+deepmat.2d.10[[j]] = in.soil.2d.10
+names(deepmat.1d[[j]]) <- out.string.1d
+names(deepmat.2d.15[[j]]) <- out.string.2d.15
+names(deepmat.2d.10[[j]]) <- out.string.2d.10
+}    
+
+names(deepmat.1d) <- monfolder
+names(deepmat.2d.15) <- monfolder
+names(deepmat.2d.10) <- monfolder
+```
+
+##Load seasonal daily model output
+```{r}
+dayfolder= folder[ntype=="dy"]
+deepmat.1d=deepmat.2d.15=deepmat.2d.10=NULL
+out.string.1d <- c("TOTSOMC","TOTSOMC_1m","TOTECOSYSC","TOTVEGC","LAISHA","LAISUN","GPP","HR","NPP","CO2x_FLX_SURFEMI","TSOI_10CM")
+out.string.2d.15 <- c("SOILPSI", "HR_vr")
+out.string.2d.10 <- c("CO2x_TRACER_CONC_BULK","POLYC_TRACER_CONC_BULK","MONOC_TRACER_CONC_BULK","MICC_TRACER_CONC_BULK","ENZC_TRACER_CONC_BULK","RESC_TRACER_CONC_BULK","LIT1C_TRACER_CONC_BULK","LIT2C_TRACER_CONC_BULK","LIT3C_TRACER_CONC_BULK")   
+in.soil.1d=in.soil.2d.15=in.soil.2d.10=NULL
+
+#The output size for this experiment is hardcoded below (729 days) - may need to modify
+for (j in 1:length(dayfolder)) {
+  for(i in 1:length(out.string.1d)){
+  in.soil.1d[[i]] <- vector(length = 729)
+  }
+  for(i in 1:length(out.string.2d.15)){
+  in.soil.2d.15[[i]] <- matrix(nrow=729, ncol=15)
+  }
+  for(i in 1:length(out.string.2d.10)){
+  in.soil.2d.10[[i]] <- matrix(nrow=729, ncol=10)
+  }
+
+        filename <- paste(rundir,dayfolder[j],"/",dayfolder[j],".clm2.h0.2013-10-24-00000.nc", sep = "")
+
+        in.file <- nc_open(filename)
+        
+        for(k in 1:length(out.string.1d)){
+        in.soil.1d[[k]] <- ncvar_get(in.file, out.string.1d[k])
+        }
+        for(k in 1:length(out.string.2d.15)){
+        in.soil.2d.15[[k]] <- ncvar_get(in.file, out.string.2d.15[k])
+        }
+        for(k in 1:length(out.string.2d.10)){
+        in.soil.2d.10[[k]] <- ncvar_get(in.file, out.string.2d.10[k])
+        }
+
+        rm(in.file)
+
+deepmat.1d[[j]] = in.soil.1d
+deepmat.2d.15[[j]] = in.soil.2d.15
+deepmat.2d.10[[j]] = in.soil.2d.10
+names(deepmat.1d[[j]]) <- out.string.1d
+names(deepmat.2d.15[[j]]) <- out.string.2d.15
+names(deepmat.2d.10[[j]]) <- out.string.2d.10
+}
+names(deepmat.1d) <- dayfolder
+names(deepmat.2d.15) <- dayfolder
+names(deepmat.2d.10) <- dayfolder
+```
+##Plot daily model output
+```{r}
+par(mfrow=c(2,2))
+for(i in 1:length(out.string.1d)){
+  minin <- NULL
+  maxin <- NULL
+  for(j in 1:length(dayfolder)){
+  minin[j] <- min(deepmat.1d[[j]][[i]])
+  maxin[j] <- max(deepmat.1d[[j]][[i]])
+  }
+  maxall <- max(maxin)
+  minall <- min(minin)
+
+#The number of datasets to be plotted here is hardcoded (ambient and warmed). Because these are diagnostic plots I did not include a legend. Gray is ambient and dark red is warmed +4C.
+    plot(deepmat.1d[[dayfolder[1]]][[i]], type="l",col="gray", xlab="Days", ylab=out.string.1d[i], ylim=c(minall,maxall))
+    lines(deepmat.1d[[dayfolder[2]]][[i]], type="l", col="dark red") 
+}
+```
+
+#Model-data comparisons
+##Initial profile comparisons with Blodgett data
+```{r}
+depth.m = c(0.00710, 0.0279, 0.0623, 0.119, 0.212, 0.366, 0.620, 1.038, 1.728, 2.865, 4.739, 7.830, 12.925, 21.326, 35.178) #modeled depth increments
+depm = depth.m[1:10] #top 10 layers
+
+summat = 12*(deepmat.2d.10[[dayfolder[1]]][["POLYC_TRACER_CONC_BULK"]] + deepmat.2d.10[[dayfolder[1]]][["MONOC_TRACER_CONC_BULK"]] + deepmat.2d.10[[dayfolder[1]]][["MICC_TRACER_CONC_BULK"]] + deepmat.2d.10[[dayfolder[1]]][["ENZC_TRACER_CONC_BULK"]] + deepmat.2d.10[[dayfolder[1]]][["RESC_TRACER_CONC_BULK"]])
+
+micmat = 12*(deepmat.2d.10[[dayfolder[1]]][["MICC_TRACER_CONC_BULK"]] + deepmat.2d.10[[dayfolder[1]]][["RESC_TRACER_CONC_BULK"]])
+
+#soil C profile
+par(mfrow=c(1,1))
+plot(df$g.C.m2/1000,df$Mid.Depth/100, col="gray", pch=16, ylab="Depth (m)", xlab=expression("Soil C to 1 m depth (kg C" ~m^-2~")"), ylim=c(1,0), xlim=c(0,10), main="Blodgett, CA")
+legend("bottomright",c("Observed","Predicted"), col=c("gray",1), lty=1, pch=16, cex=0.8)
+for(i in 1:729){
+points(summat[,i]/1000,depm, type="p",col=1, pch=16)
+}
+
+#microbial biomass profile
+df$MatchDepth <- df$Mid.Depth
+meanm <- tapply(mbd$micgram, mbd$MidDepth, median, na.rm=T)
+#micgram: mgC (g dry soil)-1 to gCm2
+plot(mbd$micgram, mbd$MidDepth/100, pch=16, col="lightgray", ylab="Depth (m)", xlab=expression("Microbial C to 1 m depth (g C" ~m^-2~")"), ylim=c(1,0), xlim=c(0,800), main="Blodgett, CA")
+points(meanm, as.numeric(as.character(names(meanm)))/100, pch=16, col="darkgray")
+for(i in 1:729){
+points(micmat[,i],depm, type="p",col=1, pch=16)
+}
+
+#CO2 gas concentration profile
+meanf <- tapply(cf$CO2, cf$Depth, median, na.rm=T)
+plot(cf$CO2,cf$Depth/100, col="lightgray", pch=16, ylab="Depth (m)", xlab=expression("[CO2] to 1 m depth (ppm)"), ylim=c(1,0), main="Blodgett, CA")
+points(meanf,as.numeric(as.character(names(meanf)))/100, col="darkgray", pch=16)
+for(i in 1:729){
+points(deepmat.2d.10[[dayfolder[1]]][["CO2x_TRACER_CONC_BULK"]][,i]*44*1000*0.516,depm, type="p",col=1, pch=16) #conv mol/m3 to ppm
+}
+legend("topright",c("Observed","ReSOM"), col=c("gray",1), lty=1, pch=16, cex=0.8)
+```
+
+##Seasonal comparisons with Blodgett data
+```{r}
+summary(auto$lin_flux) #umol CO2/m2/s
+u2m <- 12*1e-6*1000*60*60 #umol/m2/s to mgC/m2/hr
+u2s <- 12*1e-6 #umol/m2/s to gC/m2/s
+u2mol <- 1e-6*12/44 #umol CO2/m2/s to mol C/m2/s
+
+#compare modeled and observed autochamber fluxes for ambient and heated
+#the length of the experiment is hardcoded at 2 years
+plot(control$time_series, control$lin_flux*u2mol, pch=16, cex=0.5, ylab="Autochamber Fluxes (molC/m2/s)")
+points(heated$time_series, heated$lin_flux*u2mol, col=2, pch=16, cex=0.5)
+points(x = seq(as.POSIXlt("2013-10-24 20:22:00 GMT"),as.POSIXlt("2015-12-24 20:22:00 GMT"),length=729), deepmat.1d[[dayfolder[1]]][["CO2x_FLX_SURFEMI"]], type="o",col="dark gray")
+points(x = seq(as.POSIXlt("2013-10-24 20:22:00 GMT"),as.POSIXlt("2015-12-24 20:22:00 GMT"),length=729), deepmat.1d[[dayfolder[2]]][["CO2x_FLX_SURFEMI"]], type="o",col="dark red")
+
+#compare modeled (10cm) and observed (5cm?) soil temperature
+#output of TSOI_10CM is not different because I imposed a temperature change in resom only in order not to mess with the energy balance in the rest of the model
+plot(control$time_series, control$soil_temp_C, xlab="Time", ylab="5-10cm Soil Temperature (C)")
+points(heated$time_series, heated$soil_temp_C, col=2)
+points(x = seq(as.POSIXlt("2013-10-24 20:22:00 GMT"),as.POSIXlt("2015-12-24 20:22:00 GMT"),length=729), deepmat.1d[[dayfolder[1]]][["TSOI_10CM"]]-273.15, type="o",col="dark gray")
+points(x = seq(as.POSIXlt("2013-10-24 20:22:00 GMT"),as.POSIXlt("2015-12-24 20:22:00 GMT"),length=729), deepmat.1d[[dayfolder[2]]][["TSOI_10CM"]]-273.15+4, type="o",col="dark red")
+
+#compared modeled soilpsi to observed vwc
+par(mfrow=c(1,2))
+plot(control$time_series, control$VWC, xlab="Time", ylab="VWC", ylim=c(-0.3,0.5),cex=0.3)
+points(heated$time_series, heated$VWC, xlab="Time", ylab="VWC", col=2,cex=0.3)
+
+plot(x = seq(as.POSIXlt("2013-10-24 20:22:00 GMT"),as.POSIXlt("2015-12-24 20:22:00 GMT"),length=729),deepmat.2d.15[[dayfolder[1]]][["SOILPSI"]][1,], type="o",col=rgb(0,0,0,1/10), xlab="Time", ylab="PSI",cex=0.5)
+for(i in 1:10){
+points(x = seq(as.POSIXlt("2013-10-24 20:22:00 GMT"),as.POSIXlt("2015-12-24 20:22:00 GMT"),length=729),deepmat.2d.15[[dayfolder[1]]][["SOILPSI"]][i,], type="o",col=rgb(0,0,0,i/10),cex=0.5)
+points(x = seq(as.POSIXlt("2013-10-24 20:22:00 GMT"),as.POSIXlt("2015-12-24 20:22:00 GMT"),length=729),deepmat.2d.15[[dayfolder[2]]][["SOILPSI"]][i,], type="o",col=rgb(255/355,0,0,i/10),cex=0.5)
+}
+```
+
+##Profile comparisons with Blodgett data
+```{r}
+#plot observed and modeled CO2 concentration for ambient and heated 
+meanf <- tapply(cf$CO2, cf$Depth, median, na.rm=T)
+meanh <- tapply(hf$CO2, hf$Depth, median, na.rm=T)
+plot(cf$CO2,cf$Depth/100, col="lightgray", pch=16, ylab="Depth (m)", xlab=expression("[CO2] to 1 m depth (ppm)"), ylim=c(1,0), main="Blodgett, CA")
+points(meanf,as.numeric(as.character(names(meanf)))/100, col="darkgray", pch=16, type="o")
+points(hf$CO2,hf$Depth/100, col=2, pch=16)
+points(meanh,as.numeric(as.character(names(meanh)))/100, col=2, pch=16, type="o")
+points(deepmat.2d.10[[dayfolder[1]]][["CO2x_TRACER_CONC_BULK"]][,700]*44*1000*0.516,depm, type="o",col="dark gray", pch=16)
+points(deepmat.2d.10[[dayfolder[2]]][["CO2x_TRACER_CONC_BULK"]][,700]*44*1000*0.516,depm, type="o",col="dark red", pch=16)
+```
+
+#Modeled Q10
+```{r}
+#plot modeled Q10 of heterotrophic respiration
+q10mod = (deepmat.2d.15[[dayfolder[2]]][["HR_vr"]][,729]/deepmat.2d.15[[dayfolder[1]]][["HR_vr"]][,729])^(10/4)
+plot(q10mod,depth.m, pch=16, type="p", col=1, ylab="Depth (m)", xlab=expression("Q10"), ylim=c(1,0), xlim=c(0,30), main="Blodgett, CA")
+q10modinst <- matrix(nrow=729, ncol=15)
+for(i in 1:729){
+q10modinst[i,] = (deepmat.2d.15[[dayfolder[2]]][["HR_vr"]][,i]/deepmat.2d.15[[dayfolder[1]]][["HR_vr"]][,i])^(10/4)
+points(q10modinst[i,],depth.m, col="darkgray", pch=16, type="p")
+}
+points(colSums(q10modinst)/729,depth.m, pch=16, type="o", col=1)
+```
+
