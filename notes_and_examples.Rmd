@@ -93,3 +93,198 @@ sqs 			#check on your jobs
 
 #Things to watch out for
 Every time NERSC has a scheduled maintenance, they tend to update some modules (programs that the model calls) which means you have to update the modules listed in the machines/config files or you won't be able to execute whatever script is affected (create_newcase, case.submit, whatever). The software engineers on E3SM usually make this fix pretty quickly, so if you keep an eye on the E3SM github repository, you will see the issue/bug and subsequent fix that you need to get going again.
+
+#Code for Blodgett Runs
+##Spin-up at ambient soil temperature
+Case info:
+*Coupler bypass off
+*Summs on
+*Qing's updated CRUNCEP7 input
+```{r, eval=FALSE}
+./create_newcase -case NSC_ambient1 -compset I1850CRUCLM45BGC -mach edison -compiler intel -project acme -res CLM_USRDAT -user_mods_dir /global/u2/r/rza/BigModels/jytblodata
+
+cd NSC_ambient1
+
+./xmlchange DATM_MODE=CLMCRUNCEP_V5
+./xmlchange DIN_LOC_ROOT_CLMFORC=/global/cscratch1/sd/rza/acme_scratch/edison/datm7NCEP-DOE2
+./xmlchange DATM_CLMNCEP_YR_START=1979
+./xmlchange DATM_CLMNCEP_YR_END=2016
+./xmlchange CLM_BLDNML_OPTS="-bgc bgc -betr_mode on -bgc_spinup off"
+./xmlchange STOP_N=1100,REST_N=50,REST_OPTION=nyears,STOP_OPTION=nyears
+./xmlchange JOB_WALLCLOCK_TIME=24:00:00
+./xmlchange RESUBMIT=1
+
+cat <<EOF > ./user_nl_clm
+reaction_method='summs'
+nu_com='ECA'
+paramfile = '/global/u2/r/rza/BigModels/jytblodata/clm_params.c171121.nc'
+fsurdat = '/global/u2/r/rza/BigModels/jytblodata/surfdata_1x1pt_f19_blodgettUSA_simyr1850_c180215.nc'
+finidat=''
+use_dynroot = .false.
+hist_empty_htapes = .true.
+hist_fincl1 = 'CO2x_TRACER_CONC_BULK','CH4_TRACER_CONC_BULK','CWDC_TRACER_CONC_BULK','ENZC_TRACER_CONC_BULK','ENZC_TRACER_CONC_SOLID_EQUIL','F_CO2_SOIL','F_CO2_SOIL_vr','FWDC_TRACER_CONC_BULK','GPP','H2OSOI','HR', 'HR_vr', 'LAISHA', 'LAISUN','LIT1C_TRACER_CONC_BULK','LIT2C_TRACER_CONC_BULK','LIT3C_TRACER_CONC_BULK','LWDC_TRACER_CONC_BULK','MICC_TRACER_CONC_BULK','MONOC_TRACER_CONC_BULK','MONOC_TRACER_CONC_SOLID_EQUIL','NH3x_TRACER_CONC_BULK','NO3x_TRACER_CONC_BULK','NPP','O2_TRACER_CONC_BULK','POLYC_TRACER_CONC_BULK','RESC_TRACER_CONC_BULK','SOILC','SOILC_HR','SOILPSI','SOM_C_LEACHED','TOTABGC','TOTABGC','TOTECOSYSC','TOTLITC','TOTLITC_1m','TOTSOMC','TOTSOMC_1m','TOTVEGC','TSOI_10CM','CO2x_FLX_SURFEMI','CO2x_FLX_DIF','CO2x_FLX_EBU','CO2x_FLX_ARCHM'
+hist_avgflag_pertape = 'A','I'
+hist_mfilt = 10
+hist_nhtfrq = -8760
+suplphos='ALL'
+suplnitro='ALL'
+stream_fldfilename_pdep='/global/u2/r/rza/BigModels/jytblodata/pdep_1850-2013_c20180125.nc'
+stream_year_first_pdep = 1850
+stream_year_last_pdep = 1850
+use_warm = .false.
+EOF
+
+setenv NPROCS 1
+setenv NTHRDS 1
+./xmlchange -file env_mach_pes.xml -id NTASKS_ATM -val ${NPROCS}
+./xmlchange -file env_mach_pes.xml -id NTASKS_CPL -val ${NPROCS}
+./xmlchange -file env_mach_pes.xml -id NTASKS_LND -val ${NPROCS}
+./xmlchange -file env_mach_pes.xml -id NTASKS_ICE -val ${NPROCS}
+./xmlchange -file env_mach_pes.xml -id NTASKS_OCN -val ${NPROCS}
+./xmlchange -file env_mach_pes.xml -id NTASKS_GLC -val ${NPROCS}
+./xmlchange -file env_mach_pes.xml -id NTASKS_ROF -val ${NPROCS}
+./xmlchange -file env_mach_pes.xml -id NTASKS_WAV -val ${NPROCS}
+./xmlchange -file env_mach_pes.xml -id NTASKS_ESP -val ${NPROCS}
+./xmlchange -file env_mach_pes.xml -id NTHRDS_ATM -val ${NTHRDS}
+./xmlchange -file env_mach_pes.xml -id NTHRDS_CPL -val ${NTHRDS}
+./xmlchange -file env_mach_pes.xml -id NTHRDS_LND -val ${NTHRDS}
+./xmlchange -file env_mach_pes.xml -id NTHRDS_ICE -val ${NTHRDS}
+./xmlchange -file env_mach_pes.xml -id NTHRDS_OCN -val ${NTHRDS}
+./xmlchange -file env_mach_pes.xml -id NTHRDS_GLC -val ${NTHRDS}
+./xmlchange -file env_mach_pes.xml -id NTHRDS_ROF -val ${NTHRDS}
+./xmlchange -file env_mach_pes.xml -id NTHRDS_WAV -val ${NTHRDS}
+./xmlchange -file env_mach_pes.xml -id NTHRDS_ESP -val ${NTHRDS}
+./xmlchange -file env_mach_pes.xml -id MAX_TASKS_PER_NODE -val 24
+
+./case.setup
+./case.build; ./case.submit
+```
+
+##Hybrid run at ambient soil temperature, i.e, control plots
+```{r, eval=FALSE}
+./create_newcase -case NSCEAH -compset I1850CRUCLM45BGC -mach edison -compiler intel -project acme -res CLM_USRDAT -user_mods_dir /global/u2/r/rza/BigModels/jytblodata
+
+cp /global/cscratch1/sd/rza/acme_scratch/edison/NSC_ambient1/run/NSC_ambient1.clm2.r.1101-01-01-00000.nc /global/cscratch1/sd/rza/acme_scratch/edison/NSCEAH/run
+./case.build --clean; ./case.build; ./case.submit
+
+cd NSCEAH
+
+./xmlchange DATM_MODE=CLMCRUNCEP_V5
+./xmlchange DIN_LOC_ROOT_CLMFORC=/global/cscratch1/sd/rza/acme_scratch/edison/datm7NCEP-DOE2
+./xmlchange DATM_CLMNCEP_YR_START=2013
+./xmlchange DATM_CLMNCEP_YR_END=2017
+./xmlchange CLM_BLDNML_OPTS="-bgc bgc -betr_mode on -bgc_spinup off"
+./xmlchange STOP_N=38,STOP_OPTION=nmonths
+./xmlchange JOB_WALLCLOCK_TIME=06:00:00
+./xmlchange RUN_TYPE=hybrid,RUN_REFCASE=NSC_ambient1,RUN_REFDATE=1101-01-01,RUN_STARTDATE=2013-10-24
+
+cat <<EOF > ./user_nl_clm
+reaction_method='summs'
+nu_com='ECA'
+paramfile = '/global/u2/r/rza/BigModels/jytblodata/clm_params.c171121.nc'
+fsurdat = '/global/u2/r/rza/BigModels/jytblodata/surfdata_1x1pt_f19_blodgettUSA_simyr1850_c180215.nc'
+finidat='NSC_ambient1.clm2.r.1101-01-01-00000.nc'
+use_dynroot = .false.
+hist_empty_htapes = .true.
+hist_fincl1 = 'CO2x_TRACER_CONC_BULK','CH4_TRACER_CONC_BULK','CWDC_TRACER_CONC_BULK','ENZC_TRACER_CONC_BULK','ENZC_TRACER_CONC_SOLID_EQUIL','F_CO2_SOIL','F_CO2_SOIL_vr','FWDC_TRACER_CONC_BULK','GPP','H2OSOI','HR', 'HR_vr', 'LAISHA', 'LAISUN','LIT1C_TRACER_CONC_BULK','LIT2C_TRACER_CONC_BULK','LIT3C_TRACER_CONC_BULK','LWDC_TRACER_CONC_BULK','MICC_TRACER_CONC_BULK','MONOC_TRACER_CONC_BULK','MONOC_TRACER_CONC_SOLID_EQUIL','NH3x_TRACER_CONC_BULK','NO3x_TRACER_CONC_BULK','NPP','O2_TRACER_CONC_BULK','POLYC_TRACER_CONC_BULK','RESC_TRACER_CONC_BULK','SOILC','SOILC_HR','SOILPSI','SOM_C_LEACHED','TOTABGC','TOTABGC','TOTECOSYSC','TOTLITC','TOTLITC_1m','TOTSOMC','TOTSOMC_1m','TOTVEGC','TSOI_10CM','CO2x_FLX_SURFEMI','CO2x_FLX_DIF','CO2x_FLX_EBU','CO2x_FLX_ARCHM'
+hist_avgflag_pertape = 'A','I'
+hist_mfilt = 729
+hist_nhtfrq = -24
+suplphos='ALL'
+suplnitro='ALL'
+stream_fldfilename_pdep='/global/u2/r/rza/BigModels/jytblodata/pdep_1850-2013_c20180125.nc'
+stream_year_first_pdep = 1850
+stream_year_last_pdep = 1850
+use_warm = .false.
+EOF
+
+setenv NPROCS 1
+setenv NTHRDS 1
+./xmlchange -file env_mach_pes.xml -id NTASKS_ATM -val ${NPROCS}
+./xmlchange -file env_mach_pes.xml -id NTASKS_CPL -val ${NPROCS}
+./xmlchange -file env_mach_pes.xml -id NTASKS_LND -val ${NPROCS}
+./xmlchange -file env_mach_pes.xml -id NTASKS_ICE -val ${NPROCS}
+./xmlchange -file env_mach_pes.xml -id NTASKS_OCN -val ${NPROCS}
+./xmlchange -file env_mach_pes.xml -id NTASKS_GLC -val ${NPROCS}
+./xmlchange -file env_mach_pes.xml -id NTASKS_ROF -val ${NPROCS}
+./xmlchange -file env_mach_pes.xml -id NTASKS_WAV -val ${NPROCS}
+./xmlchange -file env_mach_pes.xml -id NTASKS_ESP -val ${NPROCS}
+./xmlchange -file env_mach_pes.xml -id NTHRDS_ATM -val ${NTHRDS}
+./xmlchange -file env_mach_pes.xml -id NTHRDS_CPL -val ${NTHRDS}
+./xmlchange -file env_mach_pes.xml -id NTHRDS_LND -val ${NTHRDS}
+./xmlchange -file env_mach_pes.xml -id NTHRDS_ICE -val ${NTHRDS}
+./xmlchange -file env_mach_pes.xml -id NTHRDS_OCN -val ${NTHRDS}
+./xmlchange -file env_mach_pes.xml -id NTHRDS_GLC -val ${NTHRDS}
+./xmlchange -file env_mach_pes.xml -id NTHRDS_ROF -val ${NTHRDS}
+./xmlchange -file env_mach_pes.xml -id NTHRDS_WAV -val ${NTHRDS}
+./xmlchange -file env_mach_pes.xml -id NTHRDS_ESP -val ${NTHRDS}
+./xmlchange -file env_mach_pes.xml -id MAX_TASKS_PER_NODE -val 24
+
+./case.setup
+./case.build; ./case.submit
+```
+
+##Hybrid run at +4K soil temperature, i.e, warmed plots
+```{r, eval=FALSE}
+./create_newcase -case NSCEWH -compset I1850CRUCLM45BGC -mach edison -compiler intel -project acme -res CLM_USRDAT -user_mods_dir /global/u2/r/rza/BigModels/jytblodata
+
+cp /global/cscratch1/sd/rza/acme_scratch/edison/NSC_ambient1/run/NSC_ambient1.clm2.r.1101-01-01-00000.nc /global/cscratch1/sd/rza/acme_scratch/edison/NSCEWH/run
+./case.build --clean; ./case.build; ./case.submit
+
+cd NSCEWH
+
+./xmlchange DATM_MODE=CLMCRUNCEP_V5
+./xmlchange DIN_LOC_ROOT_CLMFORC=/global/cscratch1/sd/rza/acme_scratch/edison/datm7NCEP-DOE2
+./xmlchange DATM_CLMNCEP_YR_START=2013
+./xmlchange DATM_CLMNCEP_YR_END=2017
+./xmlchange CLM_BLDNML_OPTS="-bgc bgc -betr_mode on -bgc_spinup off"
+./xmlchange STOP_N=38,STOP_OPTION=nmonths
+./xmlchange JOB_WALLCLOCK_TIME=06:00:00
+./xmlchange RUN_TYPE=hybrid,RUN_REFCASE=NSC_ambient1,RUN_REFDATE=1101-01-01,RUN_STARTDATE=2013-10-24
+
+cat <<EOF > ./user_nl_clm
+reaction_method='summs'
+nu_com='ECA'
+paramfile = '/global/u2/r/rza/BigModels/jytblodata/clm_params.c171121.nc'
+fsurdat = '/global/u2/r/rza/BigModels/jytblodata/surfdata_1x1pt_f19_blodgettUSA_simyr1850_c180215.nc'
+finidat='NSC_ambient1.clm2.r.1101-01-01-00000.nc'
+use_dynroot = .false.
+hist_empty_htapes = .true.
+hist_fincl1 = 'CO2x_TRACER_CONC_BULK','CH4_TRACER_CONC_BULK','CWDC_TRACER_CONC_BULK','ENZC_TRACER_CONC_BULK','ENZC_TRACER_CONC_SOLID_EQUIL','F_CO2_SOIL','F_CO2_SOIL_vr','FWDC_TRACER_CONC_BULK','GPP','H2OSOI','HR', 'HR_vr', 'LAISHA', 'LAISUN','LIT1C_TRACER_CONC_BULK','LIT2C_TRACER_CONC_BULK','LIT3C_TRACER_CONC_BULK','LWDC_TRACER_CONC_BULK','MICC_TRACER_CONC_BULK','MONOC_TRACER_CONC_BULK','MONOC_TRACER_CONC_SOLID_EQUIL','NH3x_TRACER_CONC_BULK','NO3x_TRACER_CONC_BULK','NPP','O2_TRACER_CONC_BULK','POLYC_TRACER_CONC_BULK','RESC_TRACER_CONC_BULK','SOILC','SOILC_HR','SOILPSI','SOM_C_LEACHED','TOTABGC','TOTABGC','TOTECOSYSC','TOTLITC','TOTLITC_1m','TOTSOMC','TOTSOMC_1m','TOTVEGC','TSOI_10CM','CO2x_FLX_SURFEMI','CO2x_FLX_DIF','CO2x_FLX_EBU','CO2x_FLX_ARCHM'
+hist_avgflag_pertape = 'A','I'
+hist_mfilt = 729
+hist_nhtfrq = -24
+suplphos='ALL'
+suplnitro='ALL'
+stream_fldfilename_pdep='/global/u2/r/rza/BigModels/jytblodata/pdep_1850-2013_c20180125.nc'
+stream_year_first_pdep = 1850
+stream_year_last_pdep = 1850
+use_warm = .true.
+EOF
+
+setenv NPROCS 1
+setenv NTHRDS 1
+./xmlchange -file env_mach_pes.xml -id NTASKS_ATM -val ${NPROCS}
+./xmlchange -file env_mach_pes.xml -id NTASKS_CPL -val ${NPROCS}
+./xmlchange -file env_mach_pes.xml -id NTASKS_LND -val ${NPROCS}
+./xmlchange -file env_mach_pes.xml -id NTASKS_ICE -val ${NPROCS}
+./xmlchange -file env_mach_pes.xml -id NTASKS_OCN -val ${NPROCS}
+./xmlchange -file env_mach_pes.xml -id NTASKS_GLC -val ${NPROCS}
+./xmlchange -file env_mach_pes.xml -id NTASKS_ROF -val ${NPROCS}
+./xmlchange -file env_mach_pes.xml -id NTASKS_WAV -val ${NPROCS}
+./xmlchange -file env_mach_pes.xml -id NTASKS_ESP -val ${NPROCS}
+./xmlchange -file env_mach_pes.xml -id NTHRDS_ATM -val ${NTHRDS}
+./xmlchange -file env_mach_pes.xml -id NTHRDS_CPL -val ${NTHRDS}
+./xmlchange -file env_mach_pes.xml -id NTHRDS_LND -val ${NTHRDS}
+./xmlchange -file env_mach_pes.xml -id NTHRDS_ICE -val ${NTHRDS}
+./xmlchange -file env_mach_pes.xml -id NTHRDS_OCN -val ${NTHRDS}
+./xmlchange -file env_mach_pes.xml -id NTHRDS_GLC -val ${NTHRDS}
+./xmlchange -file env_mach_pes.xml -id NTHRDS_ROF -val ${NTHRDS}
+./xmlchange -file env_mach_pes.xml -id NTHRDS_WAV -val ${NTHRDS}
+./xmlchange -file env_mach_pes.xml -id NTHRDS_ESP -val ${NTHRDS}
+./xmlchange -file env_mach_pes.xml -id MAX_TASKS_PER_NODE -val 24
+
+./case.setup
+./case.build; ./case.submit
+```
+

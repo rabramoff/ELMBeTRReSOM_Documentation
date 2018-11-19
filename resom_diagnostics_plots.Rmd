@@ -298,6 +298,10 @@ for(i in 1:length(out.string.1d)){
 depth.m = c(0.00710, 0.0279, 0.0623, 0.119, 0.212, 0.366, 0.620, 1.038, 1.728, 2.865, 4.739, 7.830, 12.925, 21.326, 35.178) #modeled depth increments
 depm = depth.m[1:10] #top 10 layers
 
+#include litter in profile
+summat = 12*(deepmat.2d.10[[dayfolder[1]]][["POLYC_TRACER_CONC_BULK"]] + deepmat.2d.10[[dayfolder[1]]][["MONOC_TRACER_CONC_BULK"]] + deepmat.2d.10[[dayfolder[1]]][["MICC_TRACER_CONC_BULK"]] + deepmat.2d.10[[dayfolder[1]]][["ENZC_TRACER_CONC_BULK"]] + deepmat.2d.10[[dayfolder[1]]][["RESC_TRACER_CONC_BULK"]]+ deepmat.2d.10[[dayfolder[1]]][["LIT1C_TRACER_CONC_BULK"]] +deepmat.2d.10[[dayfolder[1]]][["LIT2C_TRACER_CONC_BULK"]]+ deepmat.2d.10[[dayfolder[1]]][["LIT3C_TRACER_CONC_BULK"]])
+
+#do not include litter in profile
 summat = 12*(deepmat.2d.10[[dayfolder[1]]][["POLYC_TRACER_CONC_BULK"]] + deepmat.2d.10[[dayfolder[1]]][["MONOC_TRACER_CONC_BULK"]] + deepmat.2d.10[[dayfolder[1]]][["MICC_TRACER_CONC_BULK"]] + deepmat.2d.10[[dayfolder[1]]][["ENZC_TRACER_CONC_BULK"]] + deepmat.2d.10[[dayfolder[1]]][["RESC_TRACER_CONC_BULK"]])
 
 micmat = 12*(deepmat.2d.10[[dayfolder[1]]][["MICC_TRACER_CONC_BULK"]] + deepmat.2d.10[[dayfolder[1]]][["RESC_TRACER_CONC_BULK"]])
